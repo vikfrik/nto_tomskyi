@@ -102,33 +102,19 @@ void parsePacket(AsyncUDPPacket packet) {
   }
 }
 
-void loginPage() { //страница с авторизацией 
-  GP_MAKE_BLOCK_TAB(
-    "Авторизация"
-    GP_MAKE_BOX(GP.LABEL("Логин"); GP.NUMBER("", "", "Ivan");      );    
-    GP_MAKE_BOX(GP.LABEL("Пароль"); GP.NUMBER("", "", "123456");         );
-
-void mainPage() { //страница с графиком и управлением 
-  GP_MAKE_BLOCK_TAB(
-    "Управление станцией",
-    GP_MAKE_BOX(GP.LABEL("Элемент 1");     GP.SWITCH("x");      );
-    GP_MAKE_BOX(GP.LABEL("Элемент 2");     GP.SLIDER("0","y");  );
-    GP_MAKE_BOX(GP.LABEL("Элемент 3");     GP.SPINNER("0","z"); );
-  );
-
-  GP.PLOT_STOCK_DARK<2, PLOT_SIZE>("plot", names, data.unix, data.vals, int dec = 0, int height = 400, bool local = 0);
-
 void build() {
   GP.BUILD_BEGIN();
   GP.THEME(GP_DARK);
-  GP.UPDATE("x,y,z"); //x,y,z - названия показателей измерения
-
+  GP.UPDATE("x,y,z"); //x,y,z - названия показателей измерения 
+  // Выстраиваем компонента объедения в блоки
   GP.TITLE("Станция Томск");
   GP.HR();
-  if (setup()) {
-    loginPage()
-    if () {          //логин и пароль должны быть верными  
-      mainPage()   
+  portal.enableAuth(char* login, char* pass);
+  if (login == "Суперкоманда")(pass == "2") {
+    GP.BOLD("Управление станцией");
+    GP_MAKE_BOX(GP.LABEL("Элемент 1");     GP.SWITCH("x");      );
+    GP_MAKE_BOX(GP.LABEL("Элемент 2");     GP.SLIDER("0","y");  );
+    GP_MAKE_BOX(GP.LABEL("Элемент 3");     GP.SPINNER("0","z"); );  
   GP.BUILD_END();
 }
 
@@ -174,6 +160,23 @@ void setup() {
   //здесь место для датчиков
 
 }
+void action() {
+   if (portal.click()) { //реакция на нажатие
+    // выводим новые значения с компонентов
+  }
+
+  if (portal.clickBool("x", ledState)) {
+    digitalWrite(LedBord, ledState);
+  }
+
+  if (portal.update()) { //при обновлении
+    if (portal.update("y")) {
+      portal.answer(l);
+    }
+    if (portal.update("z")) {
+      portal.answer(dist);
+    }
+  }
 }
 
 void loop() {
