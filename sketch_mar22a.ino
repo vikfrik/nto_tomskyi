@@ -1,75 +1,155 @@
+// Подключаем библиотеки
 #include "WiFi.h"
-#include <AsyncUDP.h>
+#include "AsyncUDP.h"
+#include "ESPmDNS.h"
 
-const char * ssid = "***********";
-const char * password = "***********";
+#include <GyverPortal.h>
+GyverPortal portal;
 
+#include <Wire.h>
+#include "TLC59108.h"
+
+#define HW_RESET_PIN 0  // Только программный сброс
+#define I2C_ADDR TLC59108::I2C_ADDR::BASE
+
+TLC59108 leds(I2C_ADDR + 7);
+
+#define NBOARDS 17
+
+// Определяем номер этой платы
+const unsigned int NUM = 2;
+struct multidata {
+  /* Номер платы (необходим для быстрого доступа по индексу
+    в массиве структур) */
+  uint8_t num;
+  /* В структуру можно добавлять элементы
+    например, ip-адрес текущей платы:*/
+  IPAddress boardIP;
+
+  String nameTeam;
+  bool dina_Base;
+  bool dina_TS;
+  bool dina_St;
+  bool dina_R;
+  bool alertTeam;
+  GPcolor color_Res;
+  byte vol_s_colb;
+  byte vol_en_colb;
+};
+
+/* Определяем имена для mDNS */
+// для ведущей платы
+const char* master_host = "esp32master";
+// приставка имени ведомой платы
+const char* slave_host = "esp32slave";
+// Определяем название и пароль точки доступа
+const char* SSID = "TP-Link_4F90";
+const char* PASSWORD = "00608268";
+
+// Определяем порт
+const uint16_t PORT = 8888;
+
+// Создаём объект UDP соединения
 AsyncUDP udp;
 
-void setup()
-{
-    Serial.begin(115200);
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-    if (WiFi.waitForConnectResult() != WL_CONNECTED) {
-        Serial.println("WiFi Failed");
-        while(1) {
-            delay(1000);
-        }
-    }
-    if(udp.listenMulticast(IPAddress(239,1,2,3), 1234)) {
-        Serial.print("UDP Listening on IP: ");
-        Serial.println(WiFi.localIP());
-        udp.onPacket([](AsyncUDPPacket packet) {
-            Serial.print("UDP Packet Type: ");
-            Serial.print(packet.isBroadcast()?"Broadcast":packet.isMulticast()?"Multicast":"Unicast");
-            Serial.print(", From: ");
-            Serial.print(packet.remoteIP());
-            Serial.print(":");
-            Serial.print(packet.remotePort());
-            Serial.print(", To: ");
-            Serial.print(packet.localIP());
-            Serial.print(":");
-            Serial.print(packet.localPort());
-            Serial.print(", Length: ");
-            Serial.print(packet.length());
-            Serial.print(", Data: ");
-            Serial.write(packet.data(), packet.length());
-            Serial.println();
-            //reply to the client
-            packet.printf("Got %u bytes of data", packet.length());
-        });
-        //Send multicast
-        udp.print("Hello!");
-    }
-    if(udp.connect(IPAddress(192,168,1,100), 1234)) {
-        Serial.println("UDP connected");
-        udp.onPacket([](AsyncUDPPacket packet) {
-            Serial.print("UDP Packet Type: ");
-            Serial.print(packet.isBroadcast()?"Broadcast":packet.isMulticast()?"Multicast":"Unicast");
-            Serial.print(", From: ");
-            Serial.print(packet.remoteIP());
-            Serial.print(":");
-            Serial.print(packet.remotePort());
-            Serial.print(", To: ");
-            Serial.print(packet.localIP());
-            Serial.print(":");
-            Serial.print(packet.localPort());
-            Serial.print(", Length: ");
-            Serial.print(packet.length());
-            Serial.print(", Data: ");
-            Serial.write(packet.data(), packet.length());
-            Serial.println();
-            //reply to the client
-            packet.printf("Got %u bytes of data", packet.length());
-        });
-        //Send unicast
-        udp.print("Hello Server!");
-    }
+bool arm;
 
-void loop()
-{
-    delay(1000);
-    //Send multicast
-    udp.print("Anyone here?");
+// Определяем callback функцию обработки пакета
+void parsePacket(AsyncUDPPacket packet) {
+  const multidata* tmp = (multidata*)packet.data();
+
+  // Вычисляем размер данных
+  const size_t len = packet.length() / sizeof(data[0]);
+
+  // Если адрес данных не равен нулю и размер данных больше нуля...
+  if (tmp != nullptr && len > 0) {
+
+    // Проходим по элементам массива
+    for (size_t i = 0; i < len; i++) {
+
+      // Если это не ESP на которой выполняется этот скетч
+      if (i != NUM) {
+        // Обновляем данные массива структур
+        data[2].num = tmp[2].num;
+        data[2].boardIP = tmp[2].boardIP;
+        // Записываем данные станции
+        data[2].nameTeam = tmp[2].nameTeam;
+        data[2].dina_Base = tmp[2].dina_Base;
+        data[2].dina_TS = tmp[2].dina_TS;
+        data[2].dina_St = tmp[2].dina_St;
+        data[2].dina_R = tmp[2].dina_R;
+        data[2].alertTeam = tmp[2].alertTeam;
+        data[2].color_Res = tmp[2].color_Res;
+        data[2].vol_s_colb = tmp[2].vol_s_colb;
+        data[2].vol_en_colb = tmp[2].vol_en_colb;
+      }else{
+        //эти данные должна отправлять динамика
+        data[2].dina_St = tmp[2].dina_St;
+        data[2].dina_Base = tmp[9].dina_Base;
+        data[2].dina_TS = tmp[9].dina_TS;
+      }
+    }
+  }
+}
+
+void setup() {
+  // Добавляем номер этой платы в массив структур
+  data[NUM].num = NUM;
+
+  
+  // Инициируем WiFi
+  WiFi.begin(SSID, PASSWORD);
+  // Ждём подключения WiFi
+  Serial.print("Подключаем к WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(100);
+  }
+  Serial.println();
+
+//void build(){}
+
+  // Записываем адрес текущей платы в элемент структуры
+  data[NUM].boardIP = WiFi.localIP();
+
+  // Инициируем mDNS с именем "esp32slave" + номер платы
+  if (!MDNS.begin(String(slave_host + NUM).c_str())) {
+    Serial.println("не получилось инициировать mDNS");
+  }
+  // Узнаём IP адрес платы с UDP сервером
+  IPAddress server = MDNS.queryHost(master_host);
+
+  // Если удалось подключиться по UDP
+  if (udp.connect(server, PORT)) {
+
+    Serial.println("UDP подключён");
+
+    // вызываем callback функцию при получении пакета
+    udp.onPacket(parsePacket);
+  }
+
+  Serial.println("Веб страница запущена");
+
+  // Инициализация модуля
+  Wire.begin();
+}
+
+//void action() {}
+
+void loop() {
+  // Отправляем данные этой платы побайтово
+  udp.broadcastTo((uint8_t*)&data[NUM], sizeof(data[0]), PORT);
+
+  // Выводим значения элементов в последовательный порт
+  for (size_t i = 0; i < NBOARDS; i++) {
+    Serial.print("IP адрес платы: ");
+    Serial.print(data[2].boardIP);
+    Serial.print(", порядковый номер: ");
+    Serial.print(data[2].num);
+    Serial.print("; ");
+    Serial.println();
+  }
+  Serial.println("----------------------------");
+  data[2].nameTeam = "Суперкоманда"  
+  delay(100);
 }
